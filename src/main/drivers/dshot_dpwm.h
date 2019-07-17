@@ -36,7 +36,11 @@
 #define PROSHOT_BIT_WIDTH            3
 #define MOTOR_NIBBLE_LENGTH_PROSHOT  (PROSHOT_BASE_SYMBOL * 4) // 4uS
 
-#define DSHOT_TELEMETRY_DEADTIME_US   (2 * 30 + 10) // 2 * 30uS to switch lines plus 10us grace period
+#define DSHOT_TELEMETRY_DEADTIME_US   (2 * 30) // 2 * 30uS to switch lines
+
+#define MIN_GCR_EDGES         7
+#define MAX_GCR_EDGES         22
+
 
 typedef uint8_t loadDmaBufferFn(uint32_t *dmaBuffer, int stride, uint16_t packet);  // function pointer used to encode a digital motor value into the DMA buffer representation
 extern FAST_RAM_ZERO_INIT loadDmaBufferFn *loadDmaBuffer;
@@ -86,7 +90,9 @@ extern DSHOT_DMA_BUFFER_UNIT dshotBurstDmaBuffer[MAX_DMA_TIMERS][DSHOT_DMA_BUFFE
 
 typedef struct {
     TIM_TypeDef *timer;
-#if defined(USE_DSHOT) && defined(USE_DSHOT_DMAR)
+#if defined(USE_DSHOT)
+    uint16_t outputPeriod;
+#if defined(USE_DSHOT_DMAR)
 #if defined(STM32F7) || defined(STM32H7)
     TIM_HandleTypeDef timHandle;
     DMA_HandleTypeDef hdma_tim;
@@ -99,6 +105,7 @@ typedef struct {
     uint16_t dmaBurstLength;
     uint32_t *dmaBurstBuffer;
     timeUs_t inputDirectionStampUs;
+#endif
 #endif
     uint16_t timerDmaSources;
 } motorDmaTimer_t;

@@ -152,55 +152,58 @@ FAST_CODE void pwmWriteDshotInt(uint8_t index, uint16_t value)
 
 void dshotEnableChannels(uint8_t motorCount);
 
-static uint16_t decodeDshotPacket(uint32_t buffer[])
+static uint32_t decodeTelemetryPacket(uint32_t buffer[], uint32_t count)
 {
+    uint32_t start = micros();
     uint32_t value = 0;
-    for (int i = 1; i < DSHOT_TELEMETRY_INPUT_LEN; i += 2) {
-        int diff = buffer[i] - buffer[i-1];
-        value <<= 1;
-        if (diff > 0) {
-            if (diff >= 11) value |= 1;
-        } else {
-            if (diff >= -9) value |= 1;
+    uint32_t oldValue = buffer[0];
+    uint32_t bits = 0;
+    for (uint32_t i = 1; i < count; i++) {
+        int diff = buffer[i] - oldValue;
+        if (diff <= 0 || bits >= 21) {
+            break;
         }
+        uint32_t count = (diff + 8) / 16;
+        value <<= count;
+        value |= 1 << (count - 1);
+        oldValue = buffer[i];
+        bits += count;
+    }
+    if (bits == 0 || bits != 21) {
+        return 0xffff;
     }
 
-    uint32_t csum = value;
+    static const uint32_t decode[32] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 10, 11, 0, 13, 14, 15,
+        0, 0, 2, 3, 0, 5, 6, 7, 0, 0, 8, 1, 0, 4, 12, 0 };
+
+    uint32_t decodedValue = decode[value & 0x1f];
+    decodedValue |= decode[(value >> 5) & 0x1f] << 4;
+    decodedValue |= decode[(value >> 10) & 0x1f] << 8;
+    decodedValue |= decode[(value >> 15) & 0x1f] << 12;
+
+    uint32_t csum = decodedValue;
     csum = csum ^ (csum >> 8); // xor bytes
     csum = csum ^ (csum >> 4); // xor nibbles
 
     if ((csum & 0xf) != 0xf) {
+        setDirectionMicros = micros() - start;
         return 0xffff;
     }
-    return value >> 4;
-}
+    decodedValue >>= 4;
 
-static uint16_t decodeProshotPacket(uint32_t buffer[])
-{
-    uint32_t value = 0;
-    for (int i = 1; i < PROSHOT_TELEMETRY_INPUT_LEN; i += 2) {
-        const int proshotModulo = MOTOR_NIBBLE_LENGTH_PROSHOT;
-        int diff = ((buffer[i] + proshotModulo - buffer[i-1]) % proshotModulo) - PROSHOT_BASE_SYMBOL;
-        int nibble;
-        if (diff < 0) {
-            nibble = 0;
-        } else {
-            nibble = (diff + PROSHOT_BIT_WIDTH / 2) / PROSHOT_BIT_WIDTH;
-        }
-        value <<= 4;
-        value |= (nibble & 0xf);
+    if (decodedValue == 0x0fff) {
+        setDirectionMicros = micros() - start;
+        return 0;
     }
-
-    uint32_t csum = value;
-    csum = csum ^ (csum >> 8); // xor bytes
-    csum = csum ^ (csum >> 4); // xor nibbles
-
-    if ((csum & 0xf) != 0xf) {
+    decodedValue = (decodedValue & 0x000001ff) << ((decodedValue & 0xfffffe00) >> 9);
+    if (!decodedValue) {
         return 0xffff;
     }
-    return value >> 4;
+    uint32_t ret = (1000000 * 60 / 100 + decodedValue / 2) / decodedValue;
+    setDirectionMicros = micros() - start;
+    return ret;
 }
-
 
 uint16_t getDshotTelemetry(uint8_t index)
 {
@@ -250,47 +253,46 @@ bool pwmStartDshotMotorUpdate(void)
     const timeMs_t currentTimeMs = millis();
 #endif
     for (int i = 0; i < dshotPwmDevice.count; i++) {
-        if (dmaMotors[i].hasTelemetry) {
+        timeDelta_t usSinceInput = cmpTimeUs(micros(), dmaMotors[i].timer->inputDirectionStampUs);
+        if (!dmaMotors[i].hasTelemetry && usSinceInput >= 0 && usSinceInput < dmaMotors[i].dshotTelemetryDeadtimeUs) {
+            return false;
+        }
+        if (dmaMotors[i].hasTelemetry || dmaMotors[i].isInput) {
 #ifdef STM32F7
-            uint32_t edges = LL_EX_DMA_GetDataLength(dmaMotors[i].dmaRef);
+            uint32_t edges = 32 - LL_EX_DMA_GetDataLength(dmaMotors[i].dmaRef);
 #else
-            uint32_t edges = DMA_GetCurrDataCounter(dmaMotors[i].dmaRef);
+            uint32_t edges = 32 - DMA_GetCurrDataCounter(dmaMotors[i].dmaRef);
 #endif
             uint16_t value = 0xffff;
-            if (edges == 0) {
-                if (dmaMotors[i].useProshot) {
-                    value = decodeProshotPacket(dmaMotors[i].dmaBuffer);
+
+            if (edges > MIN_GCR_EDGES) {
+                readDoneCount++;
+                value = decodeTelemetryPacket(dmaMotors[i].dmaBuffer, edges);
+                
+#ifdef USE_DSHOT_TELEMETRY_STATS
+                bool validTelemetryPacket = false;
+#endif
+                if (value != 0xffff) {
+                    dmaMotors[i].dshotTelemetryValue = value;
+                    dmaMotors[i].dshotTelemetryActive = true;
+                    if (i < 4) {
+                        DEBUG_SET(DEBUG_DSHOT_RPM_TELEMETRY, i, value);
+                    }
+#ifdef USE_DSHOT_TELEMETRY_STATS
+                    validTelemetryPacket = true;
+#endif
                 } else {
-                    value = decodeDshotPacket(dmaMotors[i].dmaBuffer);
+                    dshotInvalidPacketCount++;
+                    if (i == 0) {
+                        memcpy(inputBuffer,dmaMotors[i].dmaBuffer,sizeof(inputBuffer));
+                    }
                 }
+                dmaMotors[i].hasTelemetry = false;
+#ifdef USE_DSHOT_TELEMETRY_STATS
+                updateDshotTelemetryQuality(&dshotTelemetryQuality[i], validTelemetryPacket, currentTimeMs);
             }
-#ifdef USE_DSHOT_TELEMETRY_STATS
-            bool validTelemetryPacket = false;
-#endif
-            if (value != 0xffff) {
-                dmaMotors[i].dshotTelemetryValue = value;
-                dmaMotors[i].dshotTelemetryActive = true;
-                if (i < 4) {
-                    DEBUG_SET(DEBUG_DSHOT_RPM_TELEMETRY, i, value);
-                }
-#ifdef USE_DSHOT_TELEMETRY_STATS
-                validTelemetryPacket = true;
-#endif
-            } else {
-                dshotInvalidPacketCount++;
-                if (i == 0) {
-                    memcpy(inputBuffer,dmaMotors[i].dmaBuffer,sizeof(inputBuffer));
-                }
-            }
-            dmaMotors[i].hasTelemetry = false;
-#ifdef USE_DSHOT_TELEMETRY_STATS
-            updateDshotTelemetryQuality(&dshotTelemetryQuality[i], validTelemetryPacket, currentTimeMs);
 #endif
         } else {
-            timeDelta_t usSinceInput = cmpTimeUs(micros(), dmaMotors[i].timer->inputDirectionStampUs);
-            if (usSinceInput >= 0 && usSinceInput < dmaMotors[i].dshotTelemetryDeadtimeUs) {
-                return false;
-            }
 #ifdef STM32F7
             LL_EX_TIM_DisableIT(dmaMotors[i].timerHardware->tim, dmaMotors[i].timerDmaSource);
 #else
@@ -298,6 +300,7 @@ bool pwmStartDshotMotorUpdate(void)
 #endif
         }
         pwmDshotSetDirectionOutput(&dmaMotors[i], true);
+        dmaMotors[i].hasTelemetry = false;
     }
     dshotEnableChannels(dshotPwmDevice.count);
     return true;
