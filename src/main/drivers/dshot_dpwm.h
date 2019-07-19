@@ -36,7 +36,7 @@
 #define PROSHOT_BIT_WIDTH            3
 #define MOTOR_NIBBLE_LENGTH_PROSHOT  (PROSHOT_BASE_SYMBOL * 4) // 4uS
 
-#define DSHOT_TELEMETRY_DEADTIME_US   (2 * 30) // 2 * 30uS to switch lines
+#define DSHOT_TELEMETRY_DEADTIME_US   (30 + 5) // 30 to switch lines and 5 to switch lines back
 
 #define MIN_GCR_EDGES         7
 #define MAX_GCR_EDGES         22
@@ -59,14 +59,17 @@ motorDevice_t *dshotPwmDevInit(const struct motorDevConfig_s *motorConfig, uint1
 #define DSHOT_DMA_BUFFER_SIZE   18 /* resolution + frame reset (2us) */
 #define PROSHOT_DMA_BUFFER_SIZE 6  /* resolution + frame reset (2us) */
 
-#define DSHOT_TELEMETRY_INPUT_LEN 32
-#define PROSHOT_TELEMETRY_INPUT_LEN 8
+#define GCR_TELEMETRY_INPUT_LEN MAX_GCR_EDGES
 
 // For H7, DMA buffer is placed in a dedicated segment for coherency management
 #ifdef STM32H7
 #define DSHOT_DMA_BUFFER_ATTRIBUTE DMA_RAM
 #else
-#define DSHOT_DMA_BUFFER_ATTRIBUTE // None
+#ifdef STM32F7
+#define DSHOT_DMA_BUFFER_ATTRIBUTE FAST_RAM_ZERO_INIT
+#else
+#define DSHOT_DMA_BUFFER_ATTRIBUTE
+#endif
 #endif
 
 #if defined(STM32F3) || defined(STM32F4) || defined(STM32F7) || defined(STM32H7)
@@ -76,13 +79,14 @@ motorDevice_t *dshotPwmDevInit(const struct motorDevConfig_s *motorConfig, uint1
 #endif
 
 #ifdef USE_DSHOT_TELEMETRY
-STATIC_ASSERT(DSHOT_TELEMETRY_INPUT_LEN >= DSHOT_DMA_BUFFER_SIZE, dshotBufferSizeConstrait);
-#define DSHOT_DMA_BUFFER_ALLOC_SIZE DSHOT_TELEMETRY_INPUT_LEN
+STATIC_ASSERT(GCR_TELEMETRY_INPUT_LEN >= DSHOT_DMA_BUFFER_SIZE, dshotBufferSizeConstrait);
+#define DSHOT_DMA_BUFFER_ALLOC_SIZE GCR_TELEMETRY_INPUT_LEN
 #else
 #define DSHOT_DMA_BUFFER_ALLOC_SIZE DSHOT_DMA_BUFFER_SIZE
 #endif
 
 extern DSHOT_DMA_BUFFER_UNIT dshotDmaBuffer[MAX_SUPPORTED_MOTORS][DSHOT_DMA_BUFFER_ALLOC_SIZE];
+extern DSHOT_DMA_BUFFER_UNIT dshotDmaInputBuffer[MAX_SUPPORTED_MOTORS][DSHOT_DMA_BUFFER_ALLOC_SIZE];
 
 #ifdef USE_DSHOT_DMAR
 extern DSHOT_DMA_BUFFER_UNIT dshotBurstDmaBuffer[MAX_DMA_TIMERS][DSHOT_DMA_BUFFER_SIZE * 4];
@@ -104,7 +108,6 @@ typedef struct {
 #endif
     uint16_t dmaBurstLength;
     uint32_t *dmaBurstBuffer;
-    timeUs_t inputDirectionStampUs;
 #endif
 #endif
     uint16_t timerDmaSources;
@@ -122,12 +125,12 @@ typedef struct motorDmaOutput_s {
     TIM_HandleTypeDef TimHandle;
     DMA_HandleTypeDef hdma_tim;
 #endif
-    uint8_t output;
-    uint8_t index;
+    uint8_t  output;
+    uint8_t  index;
+    uint32_t iocfg;
+
 #ifdef USE_DSHOT_TELEMETRY
-    bool useProshot;
     volatile bool isInput;
-    volatile bool hasTelemetry;
     uint16_t dshotTelemetryValue;
     timeDelta_t dshotTelemetryDeadtimeUs;
     bool dshotTelemetryActive;

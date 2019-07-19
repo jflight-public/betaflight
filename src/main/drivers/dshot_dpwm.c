@@ -39,6 +39,7 @@
 // XXX TODO: Share a single region among dshotDmaBuffer and dshotBurstDmaBuffer
 
 DSHOT_DMA_BUFFER_ATTRIBUTE DSHOT_DMA_BUFFER_UNIT dshotDmaBuffer[MAX_SUPPORTED_MOTORS][DSHOT_DMA_BUFFER_ALLOC_SIZE];
+DSHOT_DMA_BUFFER_ATTRIBUTE DSHOT_DMA_BUFFER_UNIT dshotDmaInputBuffer[MAX_SUPPORTED_MOTORS][DSHOT_DMA_BUFFER_ALLOC_SIZE];
 
 #ifdef USE_DSHOT_DMAR
 DSHOT_DMA_BUFFER_ATTRIBUTE DSHOT_DMA_BUFFER_UNIT dshotBurstDmaBuffer[MAX_DMA_TIMERS][DSHOT_DMA_BUFFER_SIZE * 4];
@@ -112,6 +113,12 @@ static void dshotPwmDisableMotors(void)
 
 static bool dshotPwmEnableMotors(void)
 {
+    for (int i = 0; i < dshotPwmDevice.count; i++) {
+        motorDmaOutput_t *motor = getMotorDmaOutput(i);
+        const IO_t motorIO = IOGetByTag(motor->timerHardware->tag);
+        IOConfigGPIOAF(motorIO, motor->iocfg, motor->timerHardware->alternateFunction);
+    }
+
     // No special processing required
     return true;
 }

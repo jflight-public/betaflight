@@ -261,7 +261,7 @@ static const char * const *sensorHardwareNames[] = {
 
 #if defined(USE_DSHOT) && defined(USE_DSHOT_TELEMETRY)
 extern uint32_t readDoneCount;
-extern uint32_t inputBuffer[DSHOT_TELEMETRY_INPUT_LEN];
+extern uint32_t inputBuffer[GCR_TELEMETRY_INPUT_LEN];
 extern uint32_t setDirectionMicros;
 #endif
 

@@ -79,8 +79,9 @@ uint32_t readDoneCount;
 
 // TODO remove once debugging no longer needed
 FAST_RAM_ZERO_INIT uint32_t dshotInvalidPacketCount;
-FAST_RAM_ZERO_INIT uint32_t inputBuffer[DSHOT_TELEMETRY_INPUT_LEN];
+FAST_RAM_ZERO_INIT uint32_t inputBuffer[GCR_TELEMETRY_INPUT_LEN];
 FAST_RAM_ZERO_INIT uint32_t setDirectionMicros;
+FAST_RAM_ZERO_INIT uint32_t inputStamp;
 #endif
 
 motorDmaOutput_t *getMotorDmaOutput(uint8_t index)
@@ -244,7 +245,7 @@ void updateDshotTelemetryQuality(dshotTelemetryQuality_t *qualityStats, bool pac
 }
 #endif // USE_DSHOT_TELEMETRY_STATS
 
-bool pwmStartDshotMotorUpdate(void)
+NOINLINE bool pwmStartDshotMotorUpdate(void)
 {
     if (!useDshotTelemetry) {
         return true;
@@ -252,17 +253,25 @@ bool pwmStartDshotMotorUpdate(void)
 #ifdef USE_DSHOT_TELEMETRY_STATS
     const timeMs_t currentTimeMs = millis();
 #endif
+    const timeUs_t currentUs = micros();
     for (int i = 0; i < dshotPwmDevice.count; i++) {
-        timeDelta_t usSinceInput = cmpTimeUs(micros(), dmaMotors[i].timer->inputDirectionStampUs);
-        if (!dmaMotors[i].hasTelemetry && usSinceInput >= 0 && usSinceInput < dmaMotors[i].dshotTelemetryDeadtimeUs) {
+        timeDelta_t usSinceInput = cmpTimeUs(currentUs, inputStamp);
+        if (usSinceInput >= 0 && usSinceInput < dmaMotors[i].dshotTelemetryDeadtimeUs) {
             return false;
         }
-        if (dmaMotors[i].hasTelemetry || dmaMotors[i].isInput) {
+        if (dmaMotors[i].isInput) {
 #ifdef STM32F7
             uint32_t edges = 32 - LL_EX_DMA_GetDataLength(dmaMotors[i].dmaRef);
 #else
             uint32_t edges = 32 - DMA_GetCurrDataCounter(dmaMotors[i].dmaRef);
 #endif
+
+#ifdef STM32F7
+            LL_EX_TIM_DisableIT(dmaMotors[i].timerHardware->tim, dmaMotors[i].timerDmaSource);
+#else
+            TIM_DMACmd(dmaMotors[i].timerHardware->tim, dmaMotors[i].timerDmaSource, DISABLE);
+#endif
+
             uint16_t value = 0xffff;
 
             if (edges > MIN_GCR_EDGES) {
@@ -287,21 +296,14 @@ bool pwmStartDshotMotorUpdate(void)
                         memcpy(inputBuffer,dmaMotors[i].dmaBuffer,sizeof(inputBuffer));
                     }
                 }
-                dmaMotors[i].hasTelemetry = false;
 #ifdef USE_DSHOT_TELEMETRY_STATS
                 updateDshotTelemetryQuality(&dshotTelemetryQuality[i], validTelemetryPacket, currentTimeMs);
             }
 #endif
-        } else {
-#ifdef STM32F7
-            LL_EX_TIM_DisableIT(dmaMotors[i].timerHardware->tim, dmaMotors[i].timerDmaSource);
-#else
-            TIM_DMACmd(dmaMotors[i].timerHardware->tim, dmaMotors[i].timerDmaSource, DISABLE);
-#endif
         }
         pwmDshotSetDirectionOutput(&dmaMotors[i], true);
-        dmaMotors[i].hasTelemetry = false;
     }
+    inputStamp = 0;
     dshotEnableChannels(dshotPwmDevice.count);
     return true;
 }
