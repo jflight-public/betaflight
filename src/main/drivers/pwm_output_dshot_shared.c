@@ -261,9 +261,9 @@ NOINLINE bool pwmStartDshotMotorUpdate(void)
         }
         if (dmaMotors[i].isInput) {
 #ifdef STM32F7
-            uint32_t edges = 32 - LL_EX_DMA_GetDataLength(dmaMotors[i].dmaRef);
+            uint32_t edges = GCR_TELEMETRY_INPUT_LEN - LL_EX_DMA_GetDataLength(dmaMotors[i].dmaRef);
 #else
-            uint32_t edges = 32 - DMA_GetCurrDataCounter(dmaMotors[i].dmaRef);
+            uint32_t edges = GCR_TELEMETRY_INPUT_LEN - DMA_GetCurrDataCounter(dmaMotors[i].dmaRef);
 #endif
 
 #ifdef STM32F7
