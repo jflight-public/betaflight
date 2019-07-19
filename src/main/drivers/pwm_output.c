@@ -271,7 +271,6 @@ pwmOutputPort_t *pwmGetMotors(void)
     return motors;
 }
 
-
 #ifdef USE_SERVOS
 static pwmOutputPort_t servos[MAX_SUPPORTED_SERVOS];
 
