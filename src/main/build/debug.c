@@ -92,4 +92,6 @@ const char * const debugModeNames[DEBUG_COUNT] = {
     "CRSF_LINK_STATISTICS_DOWN",
     "BARO",
     "GPS_RESCUE_THROTTLE_PID",
+    "FF_LIMIT",
+    "FF_INTERPOLATED",
 };

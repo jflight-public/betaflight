@@ -49,6 +49,7 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/rpm_filter.h"
+#include "flight/interpolated_setpoint.h"
 
 #include "io/gps.h"
 
@@ -129,7 +130,7 @@ static FAST_RAM_ZERO_INIT float airmodeThrottleOffsetLimit;
 
 #define LAUNCH_CONTROL_YAW_ITERM_LIMIT 50 // yaw iterm windup limit when launch mode is "FULL" (all axes)
 
-PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 11);
+PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 12);
 
 void resetPidProfile(pidProfile_t *pidProfile)
 {
@@ -206,6 +207,10 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .auto_profile_cell_count = AUTO_PROFILE_CELL_COUNT_STAY,
         .transient_throttle_limit = 15,
         .profileName = { 0 },
+        .ff_interpolate_sp = 0,
+        .ff_spread = 0,
+        .ff_max_rate_limit = 0,
+        .ff_lookahead_limit = 0,
     );
 #ifndef USE_D_MIN
     pidProfile->pid[PID_ROLL].D = 30;
@@ -280,6 +285,7 @@ static FAST_RAM_ZERO_INIT float acLimit;
 static FAST_RAM_ZERO_INIT float acErrorLimit;
 static FAST_RAM_ZERO_INIT float acCutoff;
 static FAST_RAM_ZERO_INIT pt1Filter_t acLpf[XYZ_AXIS_COUNT];
+static FAST_RAM_ZERO_INIT float oldSetpointCorrection[XYZ_AXIS_COUNT];
 #endif
 
 #if defined(USE_D_MIN)
@@ -560,6 +566,10 @@ static FAST_RAM_ZERO_INIT float dMinGyroGain;
 static FAST_RAM_ZERO_INIT float dMinSetpointGain;
 #endif
 
+#ifdef USE_INTERPOLATED_SP
+static FAST_RAM_ZERO_INIT bool ffFromInterpolatedSetpoint;
+#endif
+
 void pidInitConfig(const pidProfile_t *pidProfile)
 {
     if (pidProfile->feedForwardTransition == 0) {
@@ -702,6 +712,10 @@ void pidInitConfig(const pidProfile_t *pidProfile)
 #endif
 #if defined(USE_AIRMODE_LPF)
     airmodeThrottleOffsetLimit = pidProfile->transient_throttle_limit / 100.0f;
+#endif
+#ifdef USE_INTERPOLATED_SP
+    ffFromInterpolatedSetpoint = pidProfile->ff_interpolate_sp;
+    interpolatedSpInit(pidProfile);
 #endif
 }
 
@@ -1331,12 +1345,16 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
         const float previousIterm = pidData[axis].I;
         float itermErrorRate = errorRate;
+        float uncorrectedSetpoint = currentPidSetpoint;
 
 #if defined(USE_ITERM_RELAX)
         if (!launchControlActive && !inCrashRecoveryMode) {
             applyItermRelax(axis, previousIterm, gyroRate, &itermErrorRate, &currentPidSetpoint);
             errorRate = currentPidSetpoint - gyroRate;
         }
+#endif
+#ifdef USE_ABSOLUTE_CONTROL
+        float setpointCorrection = currentPidSetpoint - uncorrectedSetpoint;
 #endif
 
         // --------low-level gyro-based PID based on 2DOF PID controller. ----------
@@ -1360,8 +1378,17 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
         // -----calculate pidSetpointDelta
         float pidSetpointDelta = 0;
+#ifdef USE_INTERPOLATED_SP
+        if (ffFromInterpolatedSetpoint) {
+            pidSetpointDelta = interpolatedSpApply(axis, pidFrequency);
+        } else {
+            pidSetpointDelta = currentPidSetpoint - previousPidSetpoint[axis];
+        }
+#else
         pidSetpointDelta = currentPidSetpoint - previousPidSetpoint[axis];
+#endif
         previousPidSetpoint[axis] = currentPidSetpoint;
+
 
 #ifdef USE_RC_SMOOTHING_FILTER
         pidSetpointDelta = applyRcSmoothingDerivativeFilter(axis, pidSetpointDelta);
@@ -1411,12 +1438,23 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         previousGyroRateDterm[axis] = gyroRateDterm[axis];
 
         // -----calculate feedforward component
+#ifdef USE_ABSOLUTE_CONTROL
+        // include abs control correction in FF
+        pidSetpointDelta += setpointCorrection - oldSetpointCorrection[axis];
+        oldSetpointCorrection[axis] = setpointCorrection;
+#endif
+
         // Only enable feedforward for rate mode and if launch control is inactive
         const float feedforwardGain = (flightModeFlags || launchControlActive) ? 0.0f : pidCoefficient[axis].Kf;
         if (feedforwardGain > 0) {
             // no transition if feedForwardTransition == 0
             float transition = feedForwardTransition > 0 ? MIN(1.f, getRcDeflectionAbs(axis) * feedForwardTransition) : 1;
-            pidData[axis].F = feedforwardGain * transition * pidSetpointDelta * pidFrequency;
+            float feedForward = feedforwardGain * transition * pidSetpointDelta * pidFrequency;
+#ifdef USE_INTERPOLATED_SP
+            pidData[axis].F = applyFFLimit(axis, feedForward, pidCoefficient[axis].Kp, currentPidSetpoint);
+#else
+            pidData[axis].F = feedForward;
+#endif
         } else {
             pidData[axis].F = 0;
         }
