@@ -27,6 +27,7 @@
 
 #ifdef USE_INTERPOLATED_SP
 static float projectedSetpoint[XYZ_AXIS_COUNT];
+static float prevSetpointAcc[XYZ_AXIS_COUNT];
 static float prevRawSetpoint[XYZ_AXIS_COUNT];
 static float prevRawDeflection[XYZ_AXIS_COUNT];
 static uint16_t interpolationSteps[XYZ_AXIS_COUNT];
@@ -79,9 +80,18 @@ FAST_CODE_NOINLINE float interpolatedSpApply(int axis, float pidFrequency) {
 
         // apply linear interpolation on setpoint
         setpointReservoir[axis] += rawSetpoint - prevRawSetpoint[axis];
-        setpointChangePerIteration[axis] = setpointReservoir[axis] / interpolationSteps[axis];
-        prevRawSetpoint[axis] = rawSetpoint;
+        extern float ffBoostFactor;
+        if (ffBoostFactor != 0.0f) {
+            const float acc = rawSetpoint - prevRawSetpoint[axis];
+            const float setpointAcc = acc - prevSetpointAcc[axis];
+            setpointReservoir[axis] += ffBoostFactor * setpointAcc;
+            prevSetpointAcc[axis] = acc;
+        }
 
+        setpointChangePerIteration[axis] = setpointReservoir[axis] / interpolationSteps[axis];
+
+        prevRawSetpoint[axis] = rawSetpoint;
+        
         if (axis == FD_ROLL) {
             DEBUG_SET(DEBUG_FF_INTERPOLATED, 0, rawDeflection * 100);
             DEBUG_SET(DEBUG_FF_INTERPOLATED, 1, projectedStickPos * 100);
@@ -116,8 +126,7 @@ FAST_CODE_NOINLINE float applyFFLimit(int axis, float value, float Kp, float cur
 
     if (ffMaxRate[axis]) {
         if (fabsf(currentPidSetpoint) <= ffMaxRate[axis]) {
-            const float limit = (ffMaxRate[axis] - fabsf(currentPidSetpoint)) * Kp;
-            value = constrainf(value, -limit, limit);
+            value = constrainf(value, (-ffMaxRate[axis] - currentPidSetpoint) * Kp, (ffMaxRate[axis] - currentPidSetpoint) * Kp);
         } else {
             value = 0;
         }

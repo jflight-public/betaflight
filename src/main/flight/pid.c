@@ -211,6 +211,8 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .ff_spread = 0,
         .ff_max_rate_limit = 0,
         .ff_lookahead_limit = 0,
+        .ff_boost = 15,
+        .ff_boost_hz = 20,
     );
 #ifndef USE_D_MIN
     pidProfile->pid[PID_ROLL].D = 30;
@@ -307,6 +309,9 @@ static FAST_RAM_ZERO_INIT pt1Filter_t airmodeThrottleLpf2;
 #endif
 
 static FAST_RAM_ZERO_INIT pt1Filter_t antiGravityThrottleLpf;
+
+static FAST_RAM_ZERO_INIT pt1Filter_t ffLpf[XYZ_AXIS_COUNT];
+FAST_RAM_ZERO_INIT float ffBoostFactor;
 
 void pidInitFilters(const pidProfile_t *pidProfile)
 {
@@ -444,6 +449,16 @@ void pidInitFilters(const pidProfile_t *pidProfile)
 #endif
 
     pt1FilterInit(&antiGravityThrottleLpf, pt1FilterGain(ANTI_GRAVITY_THROTTLE_FILTER_CUTOFF, dT));
+
+    for (int axis = 0; axis < (XYZ_AXIS_COUNT - 1); axis++){
+        pt1FilterInit(&ffLpf[axis], pt1FilterGain((float)pidProfile->ff_boost_hz, dT) );
+    }
+    if (pidProfile->ff_boost > 0 ){
+        ffBoostFactor = (float)pidProfile->ff_boost / 10.0f;
+    } else {
+        ffBoostFactor = 0;
+    }
+
 }
 
 #ifdef USE_RC_SMOOTHING_FILTER
@@ -1450,6 +1465,15 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             // no transition if feedForwardTransition == 0
             float transition = feedForwardTransition > 0 ? MIN(1.f, getRcDeflectionAbs(axis) * feedForwardTransition) : 1;
             float feedForward = feedforwardGain * transition * pidSetpointDelta * pidFrequency;
+
+#ifdef USE_INTERPOLATED_SP
+            if (!ffFromInterpolatedSetpoint)
+#endif                
+                if (ffBoostFactor && (axis <= FD_PITCH)) {
+                    const float ffHpf = feedForward - pt1FilterApply(&ffLpf[axis], feedForward);
+                    feedForward += ffHpf * ffBoostFactor;
+                }
+
 #ifdef USE_INTERPOLATED_SP
             pidData[axis].F = applyFFLimit(axis, feedForward, pidCoefficient[axis].Kp, currentPidSetpoint);
 #else
