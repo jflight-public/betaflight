@@ -158,19 +158,25 @@ static uint32_t decodeTelemetryPacket(uint32_t buffer[], uint32_t count)
     uint32_t start = micros();
     uint32_t value = 0;
     uint32_t oldValue = buffer[0];
-    uint32_t bits = 0;
-    for (uint32_t i = 1; i < count; i++) {
-        int diff = buffer[i] - oldValue;
-        if (diff <= 0 || bits >= 21) {
-            break;
+    int      bits = 0;
+    int      len;
+    for (uint32_t i = 1; i <= count; i++) {
+        if (i < count) {
+            int diff = buffer[i] - oldValue;
+            if (bits >= 21) {
+                break;
+            }
+            len = (diff + 8) / 16;
+        } else {
+            len = 21 - bits;
         }
-        uint32_t count = (diff + 8) / 16;
-        value <<= count;
-        value |= 1 << (count - 1);
+
+        value <<= len;
+        value |= 1 << (len - 1);
         oldValue = buffer[i];
-        bits += count;
+        bits += len;
     }
-    if (bits == 0 || bits != 21) {
+    if (bits != 21) {
         return 0xffff;
     }
 
