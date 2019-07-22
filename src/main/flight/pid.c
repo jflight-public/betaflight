@@ -214,10 +214,10 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .ff_boost = 15,
         .ff_boost_hz = 20,
         .idle_hz = 0,
-        .idle_adjustment_speed = 50,
+        .idle_adjustment_speed = 200,
         .idle_throttle = 60,
-        .idle_p = 20,
-        .idle_pid_limit = 100,
+        .idle_p = 40,
+        .idle_pid_limit = 200,
         .idle_max_increase = 150,
     );
 #ifndef USE_D_MIN
