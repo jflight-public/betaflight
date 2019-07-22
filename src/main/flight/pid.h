@@ -177,6 +177,15 @@ typedef struct pidProfile_s {
     uint8_t ff_spread;                      // Spread ff out over at least min spread ms
     uint8_t ff_max_rate_limit;              // Maximum setpoint rate percentage for FF
     uint8_t ff_lookahead_limit;             // FF stick extrapolation lookahead period in ms
+
+    uint8_t idle_hz;                        // minimum motor speed enforced by integrating p controller
+    uint8_t idle_throttle;                  // added to throttle, replaces dshot_idle_value
+    uint8_t idle_adjustment_speed;          // how quickly the integrating p controller tries to correct
+    uint8_t idle_p;                         // kP
+    uint8_t idle_pid_limit;                 // max P 
+    uint8_t idle_max_increase;              // max integrated correction
+    
+    
 } pidProfile_t;
 
 PG_DECLARE_ARRAY(pidProfile_t, PID_PROFILE_COUNT, pidProfiles);
@@ -251,4 +260,8 @@ float calcHorizonLevelStrength(void);
 void dynLpfDTermUpdate(float throttle);
 void pidSetItermReset(bool enabled);
 float pidGetPreviousSetpoint(int axis);
+
+
+extern float dT;
+extern float pidFrequency;
 
