@@ -81,7 +81,7 @@
 #define SERIAL_4WAY_VER_SUB_1 (uint8_t) 0
 #define SERIAL_4WAY_VER_SUB_2 (uint8_t) 03
 
-#define SERIAL_4WAY_PROTOCOL_VER 107
+#define SERIAL_4WAY_PROTOCOL_VER 108
 // *** end
 
 #if (SERIAL_4WAY_VER_MAIN > 24)
