@@ -318,6 +318,7 @@ static FAST_RAM_ZERO_INIT pt1Filter_t antiGravityThrottleLpf;
 
 static FAST_RAM_ZERO_INIT pt1Filter_t ffLpf[XYZ_AXIS_COUNT];
 FAST_RAM_ZERO_INIT float ffBoostFactor;
+static FAST_RAM_ZERO_INIT uint32_t lastFrameNumber;
 
 void pidInitFilters(const pidProfile_t *pidProfile)
 {
@@ -1316,6 +1317,11 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     rpmFilterUpdate();
 #endif
 
+    bool newRcFrame = false;
+    if (lastFrameNumber != getRcFrameNumber()) {
+        lastFrameNumber = getRcFrameNumber();
+        newRcFrame = true;
+    }
 
     // ----------PID controller----------
     for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
@@ -1401,7 +1407,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         float pidSetpointDelta = 0;
 #ifdef USE_INTERPOLATED_SP
         if (ffFromInterpolatedSetpoint) {
-            pidSetpointDelta = interpolatedSpApply(axis, pidFrequency);
+            pidSetpointDelta = interpolatedSpApply(axis, pidFrequency, newRcFrame);
         } else {
             pidSetpointDelta = currentPidSetpoint - previousPidSetpoint[axis];
         }

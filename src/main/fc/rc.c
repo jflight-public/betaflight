@@ -66,6 +66,7 @@ static applyRatesFn *applyRates;
 uint16_t currentRxRefreshRate;
 
 FAST_RAM_ZERO_INIT uint8_t interpolationChannels;
+static FAST_RAM_ZERO_INIT uint32_t rcFrameNumber;
 
 enum {
     ROLL_FLAG = 1 << ROLL,
@@ -87,6 +88,11 @@ enum {
 
 static FAST_RAM_ZERO_INIT rcSmoothingFilter_t rcSmoothingData;
 #endif // USE_RC_SMOOTHING_FILTER
+
+uint32_t getRcFrameNumber() 
+{
+    return rcFrameNumber;
+}
 
 float getSetpointRate(int axis)
 {
@@ -583,6 +589,10 @@ FAST_CODE uint8_t processRcSmoothingFilter(void)
 FAST_CODE void processRcCommand(void)
 {
     uint8_t updatedChannel;
+
+    if (isRXDataNew) {
+        rcFrameNumber++;
+    }
 
     if (isRXDataNew && pidAntiGravityEnabled()) {
         checkForThrottleErrorResetState(currentRxRefreshRate);

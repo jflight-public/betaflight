@@ -50,13 +50,13 @@ void interpolatedSpInit(const pidProfile_t *pidProfile) {
     }
 }
 
-FAST_CODE_NOINLINE float interpolatedSpApply(int axis, float pidFrequency) {
+FAST_CODE_NOINLINE float interpolatedSpApply(int axis, float pidFrequency, bool newRcFrame) {
     const float rawSetpoint = getRawSetpoint(axis);
     const float rawDeflection = getRawDeflection(axis);
 
     float pidSetpointDelta = 0.0f;
     static int iterationsSinceLastUpdate[XYZ_AXIS_COUNT];
-    if (rawDeflection != prevRawDeflection[axis]) {
+    if (newRcFrame) {
 
         setpointReservoir[axis] -= iterationsSinceLastUpdate[axis] * setpointChangePerIteration[axis];
         deflectionReservoir[axis] -= iterationsSinceLastUpdate[axis] * deflectionChangePerIteration[axis];

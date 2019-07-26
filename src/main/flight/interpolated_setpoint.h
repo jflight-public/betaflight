@@ -25,5 +25,5 @@
 #include <stdint.h>
 
 void interpolatedSpInit(const pidProfile_t *pidProfile);
-float interpolatedSpApply(int axis, float pidFrequency);
+float interpolatedSpApply(int axis, float pidFrequency, bool newRcFrame);
 float applyFFLimit(int axis, float value, float Kp, float currentPidSetpoint);
