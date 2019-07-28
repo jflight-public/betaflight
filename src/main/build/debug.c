@@ -94,4 +94,5 @@ const char * const debugModeNames[DEBUG_COUNT] = {
     "GPS_RESCUE_THROTTLE_PID",
     "FF_LIMIT",
     "FF_INTERPOLATED",
+    "DYN_IDLE",
 };

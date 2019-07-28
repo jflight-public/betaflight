@@ -575,7 +575,7 @@ static void calculateThrottleAndCurrentMotorEndpoints(timeUs_t currentTimeUs)
         }
     } else {
         static float motorRangeMinIncrease = 0;
-#ifdef USE_RPM_FILTER
+#ifdef USE_DYN_IDLE
         if (currentPidProfile->idle_hz) {
             static float oldMinRpm;
             const float maxIncrease = isAirmodeActivated() ? currentPidProfile->idle_max_increase * 0.001f : 0.04f;
@@ -585,6 +585,12 @@ static void calculateThrottleAndCurrentMotorEndpoints(timeUs_t currentTimeUs)
             const float pidSum = constrainf(currentPidProfile->idle_p * 0.0001f * error, -currentPidProfile->idle_pid_limit, currentPidProfile->idle_pid_limit);
             motorRangeMinIncrease = constrainf(motorRangeMinIncrease + pidSum * dT, 0.0f, maxIncrease);
             oldMinRpm = minRpm;
+
+            DEBUG_SET(DEBUG_DYN_IDLE, 0, motorRangeMinIncrease * 1000);
+            DEBUG_SET(DEBUG_DYN_IDLE, 1, targetRpmChangeRate);
+            DEBUG_SET(DEBUG_DYN_IDLE, 2, error);
+            DEBUG_SET(DEBUG_DYN_IDLE, 3, minRpm);
+            
         }
 #endif
         
@@ -848,7 +854,11 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs, uint8_t vbatPidCompensa
     throttle = pidCompensateThrustLinearization(throttle);
 #endif
 
-    throttle += currentPidProfile->idle_throttle * 0.001f;
+#ifdef USE_DYN_IDLE
+    if (currentPidProfile->idle_hz) {
+        throttle += currentPidProfile->idle_throttle * 0.001f;
+    }
+#endif
 
 #if defined(USE_THROTTLE_BOOST)
     if (throttleBoost > 0.0f) {
