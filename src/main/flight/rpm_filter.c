@@ -154,12 +154,12 @@ static float applyFilter(rpmNotchFilter_t* filter, int axis, float value)
     return value;
 }
 
-float rpmFilterGyro(int axis, float value)
+FAST_CODE_NOINLINE float rpmFilterGyro(int axis, float value)
 {
     return applyFilter(gyroFilter, axis, value);
 }
 
-float rpmFilterDterm(int axis, float value)
+FAST_CODE_NOINLINE float rpmFilterDterm(int axis, float value)
 {
     return applyFilter(dtermFilter, axis, value);
 }
